@@ -88,13 +88,14 @@ done
 [ -n "$DOMAIN" ] || die "no domain given. Usage: ./cf-onboard.sh <domain> [--ssl full|strict|flexible] [--hsts] [--waf]"
 case "$SSL_MODE" in off|flexible|full|strict) ;; *) die "invalid --ssl '$SSL_MODE' (use off|flexible|full|strict)";; esac
 
-# ---------- 0. verify token ----------
+# ---------- 0. verify token (non-fatal: some account-scoped tokens verify elsewhere) ----------
 step "Verifying API token"
 V=$(cf "$API/user/tokens/verify")
-if [ "$(printf '%s' "$V" | _success)" != "true" ]; then
-  die "token verification failed — $(printf '%s' "$V" | _errors)"
+if [ "$(printf '%s' "$V" | _success)" = "true" ]; then
+  ok "token valid ($(printf '%s' "$V" | _field '["result"]["status"]'))"
+else
+  warn "user-scoped verify inconclusive — validating via zone access instead"
 fi
-ok "token valid ($(printf '%s' "$V" | _field '["result"]["status"]'))"
 
 # ---------- 1. resolve zone ----------
 step "Looking up zone: $DOMAIN"
