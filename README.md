@@ -1,43 +1,44 @@
 # cf-onboarding
 
-One-command Cloudflare hardening for a new client domain. Idempotent — safe to re-run.
+One-command Cloudflare **security baseline** for a new client domain. Free-plan only.
+Idempotent — safe to re-run.
 
-## What it does
+## The workflow (per client)
 
-Default:
-- **Always Use HTTPS** — 301-redirects all `http://` to `https://`
-- **SSL/TLS mode** → `full` (override with `--ssl`)
-- **Automatic HTTPS Rewrites** → on
-- **Minimum TLS** → 1.2, **TLS 1.3** → on, **Brotli** → on
-- **Bot Fight Mode** → on (best-effort; plan-gated)
+1. In the **client's** Cloudflare account, create a custom API token (see permissions below).
+2. Run:
+   ```bash
+   CF_API_TOKEN=<client-token> ./cf-onboard.sh clientdomain.co.za
+   ```
+   (Or drop the token into a git-ignored `.env` and just run `./cf-onboard.sh clientdomain.co.za`.)
+3. Do the 3 manual follow-ups the script prints (DNSSEC DS record at registrar, Bot Fight Mode toggle, optional `--ssl strict` later).
 
-Opt-in flags:
-- `--hsts` — enable HSTS (only after HTTPS is confirmed working everywhere)
-- `--waf` — add a Managed-Challenge WAF rule for `/wp-admin`, `/wp-login`, `/xmlrpc.php`, `/administrator`
-- `--ssl full|strict|flexible|off` — set the encryption mode (default `full`)
+## What it applies (all Free-tier, all ON by default)
 
-## Setup (once)
+- **Always Use HTTPS** — 301 http → https
+- **SSL/TLS** → `full` · **Automatic HTTPS Rewrites** · **Min TLS 1.2** · **TLS 1.3** · **Opportunistic Encryption** · **Brotli**
+- **Browser Integrity Check** · **Email Obfuscation** · **Server-Side Excludes**
+- **DNSSEC** — activated; prints the DS record to add at the registrar
+- **Leaked-Credentials detection**
+- **WAF custom rule** — Managed Challenge on `/wp-admin`, `/wp-login`, `/xmlrpc.php`, `/administrator`
+- **Security headers** — `X-Content-Type-Options: nosniff`, `X-Frame-Options: SAMEORIGIN`, `Referrer-Policy: strict-origin-when-cross-origin`, `X-XSS-Protection: 0`
+- **HSTS (smart)** — auto-enabled *only* if the site already answers over HTTPS, so it can never lock out a not-yet-live domain. Re-run once DNS is live to switch it on.
 
-```bash
-cp .env.example .env
-# edit .env and paste your Cloudflare API token (see .env.example for permissions)
-chmod +x cf-onboard.sh
-```
+### Not scriptable on Free (script reminds you)
+- **Bot Fight Mode** — dashboard toggle: Security → Bots.
+- **DNSSEC DS record** — must be added at the domain registrar.
+- **WAF Managed Ruleset** — paid feature; intentionally excluded.
 
-The token is read **only** from `$CF_API_TOKEN` or the git-ignored `.env`. It is never
-hard-coded and never committed.
+## Flags
+- `--ssl full|strict|flexible|off` (default `full`; use `strict` once origin has a valid cert)
+- `--no-hsts` · `--no-waf` · `--no-headers` — skip a section
 
-## Use (per client)
-
-```bash
-./cf-onboard.sh clientdomain.co.za
-./cf-onboard.sh clientdomain.co.za --waf --hsts --ssl strict
-```
-
-The domain must already be added to your Cloudflare account (nameservers pointed). The
-script only configures settings; it does not create the zone.
+## Token permissions (in the client's account, Zone Resources → All zones)
+- Zone → **Zone Settings** → Edit
+- Zone → **Zone** → Read
+- Zone → **Zone WAF** → Edit
+- Zone → **DNS** → Edit  *(for DNSSEC)*
 
 ## Security
-
-- Rotate the token immediately if it is ever pasted into a chat, email, or file.
-- `.env`, `*.token`, `*.key`, and `secrets*` are git-ignored — verify with `git status` before pushing.
+- Each client uses their own token — pass it inline (`CF_API_TOKEN=…`) or keep the current one in `.env`.
+- `.env`, `*.token`, `*.key`, `secrets*` are git-ignored. Never commit a real token.
