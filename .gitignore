@@ -1,0 +1,7 @@
+# NEVER commit real credentials
+.env
+.env.*
+!.env.example
+*.token
+*.key
+secrets*
