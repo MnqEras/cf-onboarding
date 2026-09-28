@@ -1,0 +1,11 @@
+#!/bin/sh
+HOOKS_DIR=$(git rev-parse --show-toplevel)/.githooks
+OUT=$(git diff --cached --unified=0 --no-color -- . 2>/dev/null \
+        | /usr/bin/python3 "$HOOKS_DIR/secret-scan.py" 2>&1)
+if [ $? -ne 0 ]; then
+  printf '%s\n' "$OUT"
+  echo "  $(date '+%F %T') blocked in $(git rev-parse --show-toplevel)" \
+      >> "$HOME/Library/Logs/vault-secret-guard.log" 2>/dev/null
+  exit 1
+fi
+exit 0
