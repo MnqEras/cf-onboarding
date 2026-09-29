@@ -25,7 +25,7 @@ Idempotent — safe to re-run.
 - **HSTS (smart)** — auto-enabled *only* if the site already answers over HTTPS, so it can never lock out a not-yet-live domain. Re-run once DNS is live to switch it on.
 
 ### Not scriptable on Free (script reminds you)
-- **Bot Fight Mode** — dashboard toggle: Security → Bots.
+- **Bot Fight Mode** — dashboard toggle: Security → Bots. **Not for `--static-site` zones** (see below).
 - **DNSSEC DS record** — must be added at the domain registrar.
 - **WAF Managed Ruleset** — paid feature; intentionally excluded.
 
@@ -42,3 +42,14 @@ Idempotent — safe to re-run.
 ## Security
 - Each client uses their own token — pass it inline (`CF_API_TOKEN=…`) or keep the current one in `.env`.
 - `.env`, `*.token`, `*.key`, `secrets*` are git-ignored. Never commit a real token.
+
+## `--static-site` (every BoldPiq Astro site on Cloudflare Workers)
+
+`./cf-onboard.sh clientdomain.co.za --static-site`
+
+The site sends its own security headers and HSTS (`public/_headers`, strict CSP) and `deploy.sh`
+checks the live pages byte-for-byte against the build, so the zone must not touch the response:
+no header transform rule (it replaced the site's `X-Frame-Options: DENY` with `SAMEORIGIN`), no zone
+HSTS, Email Obfuscation off, Bot Fight Mode + JavaScript detections off (they inject an inline script
+the CSP blocks; found on lgs-preview.boldpiq.com 2026-09-29). SSL, DNSSEC, TLS, the WAF rule and the
+rest of the hardening still apply.

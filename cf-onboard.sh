@@ -28,7 +28,15 @@
 # or put the token in a local .env (git-ignored) and:
 #   ./cf-onboard.sh clientdomain.co.za
 #
-# Flags: --ssl full|strict|flexible|off | --no-hsts | --no-waf | --no-headers
+# Flags: --ssl full|strict|flexible|off | --no-hsts | --no-waf | --no-headers | --static-site
+#
+# --static-site: for BoldPiq's Astro sites on Cloudflare Workers (codebase standard §7a). The site sends
+#   its own security headers + HSTS from public/_headers, with a strict CSP (script-src 'self' + hashes),
+#   and deploy.sh checks the live site byte-for-byte against the build. So the zone must not add or
+#   change anything: no header transform rule (it overrode the site's X-Frame-Options DENY with
+#   SAMEORIGIN), no zone HSTS, Email Obfuscation OFF (rewrites mailto links + injects a script), and
+#   JavaScript detections OFF / Bot Fight Mode OFF (injects an inline script the CSP blocks; Bot Fight
+#   Mode forces it on permanently). A static site has no login or server to protect from bots.
 #
 # Token permissions (create in the CLIENT's Cloudflare account, All zones):
 #   Zone → Zone Settings → Edit   |   Zone → Zone → Read   |   Zone → Zone WAF → Edit
@@ -97,7 +105,7 @@ put_ruleset() {
 }
 
 # ---------- args ----------
-DOMAIN=""; SSL_MODE="full"; NO_HSTS=0; NO_WAF=0; NO_HEADERS=0
+DOMAIN=""; SSL_MODE="full"; NO_HSTS=0; NO_WAF=0; NO_HEADERS=0; STATIC_SITE=0
 usage() { sed -n '2,42p' "${BASH_SOURCE[0]}" | sed 's/^# \{0,1\}//'; }
 while [ $# -gt 0 ]; do
   case "$1" in
@@ -105,6 +113,7 @@ while [ $# -gt 0 ]; do
     --no-hsts)    NO_HSTS=1; shift;;
     --no-waf)     NO_WAF=1; shift;;
     --no-headers) NO_HEADERS=1; shift;;
+    --static-site) STATIC_SITE=1; NO_HEADERS=1; NO_HSTS=1; shift;;
     -h|--help)    usage; exit 0;;
     -*) die "unknown flag: $1";;
     *)  DOMAIN="$1"; shift;;
@@ -112,7 +121,7 @@ while [ $# -gt 0 ]; do
 done
 
 [ -n "${CF_API_TOKEN:-}" ] || die "CF_API_TOKEN not set (export it or put it in $SCRIPT_DIR/.env)"
-[ -n "$DOMAIN" ] || die "no domain. Usage: CF_API_TOKEN=... ./cf-onboard.sh <domain> [--ssl ...] [--no-hsts] [--no-waf] [--no-headers]"
+[ -n "$DOMAIN" ] || die "no domain. Usage: CF_API_TOKEN=... ./cf-onboard.sh <domain> [--ssl ...] [--no-hsts] [--no-waf] [--no-headers] [--static-site]"
 case "$SSL_MODE" in off|flexible|full|strict) ;; *) die "invalid --ssl '$SSL_MODE'";; esac
 
 # ---------- 0. token (non-fatal verify; real gate is the zone lookup) ----------
@@ -150,7 +159,11 @@ set_setting brotli                   '"on"'          "Brotli compression"
 # ---------- 3. hardening toggles ----------
 step "Hardening"
 set_setting browser_check      '"on"' "Browser Integrity Check"
-set_setting email_obfuscation  '"on"' "Email Obfuscation"
+if [ "$STATIC_SITE" = 1 ]; then
+  set_setting email_obfuscation '"off"' "Email Obfuscation OFF (static site: it rewrites the page)"
+else
+  set_setting email_obfuscation  '"on"' "Email Obfuscation"
+fi
 set_setting server_side_exclude '"on"' "Server-Side Excludes"
 
 # ---------- 4. DNSSEC ----------
@@ -174,12 +187,22 @@ else
 fi
 
 # ---------- 6. Bot Fight Mode (Free plan: usually dashboard-only) ----------
-step "Bot Fight Mode"
-BFM=$(cf -X PUT "$API/zones/$ZONE_ID/bot_management" --data '{"fight_mode":true}')
-if [ "$(printf '%s' "$BFM" | _success)" = "true" ]; then
-  ok "Bot Fight Mode"
+if [ "$STATIC_SITE" = 1 ]; then
+  step "Bot Fight Mode / JavaScript detections (static site: both OFF)"
+  BFM=$(cf -X PUT "$API/zones/$ZONE_ID/bot_management" --data '{"fight_mode":false,"enable_js":false}')
+  if [ "$(printf '%s' "$BFM" | _success)" = "true" ]; then
+    ok "Bot Fight Mode off, JavaScript detections off (no script injected into the site's pages)"
+  else
+    warn "could not turn them off via API — dashboard: Security → Bots: Bot Fight Mode OFF, JavaScript Detections OFF"
+  fi
 else
-  warn "not settable via API on Free — toggle ON in dashboard: Security → Bots → Bot Fight Mode"
+  step "Bot Fight Mode"
+  BFM=$(cf -X PUT "$API/zones/$ZONE_ID/bot_management" --data '{"fight_mode":true}')
+  if [ "$(printf '%s' "$BFM" | _success)" = "true" ]; then
+    ok "Bot Fight Mode"
+  else
+    warn "not settable via API on Free — toggle ON in dashboard: Security → Bots → Bot Fight Mode"
+  fi
 fi
 
 # ---------- 7. WAF custom rule ----------
